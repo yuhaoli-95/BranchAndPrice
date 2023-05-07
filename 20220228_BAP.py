@@ -38,7 +38,7 @@ class SameDiff(Conshdlr):
         cons.data["machineIndex"] = machineIndex
         cons.data["patternIndex"] = patternIndex # which pattern was the branching var chosen from originally
         return cons
-
+    # tools
     def checkVariable(self, cons, var, varid, nfixedvars):
         # print("entering checkVariable")
         cutoff = False
@@ -48,9 +48,14 @@ class SameDiff(Conshdlr):
         constype = cons.data["type"]
         patterns = self.model.data["patterns"]
         patternId = varid
-        existitem1 = (patterns[cons.data['machineIndex']][varid][0][cons.data["k"]] < patterns[cons.data['machineIndex']][varid][0][cons.data["j"]])
+        # 判断 k 的开始时间是否在 j 之前  k => j
+        existitem1 = (
+            patterns[cons.data['machineIndex']][varid][0][cons.data["k"]] 
+            < 
+            patterns[cons.data['machineIndex']][varid][0][cons.data["j"]]
+        )
 
-
+        # 如果类型为 required 同时 j => k   或者 类型为 forbidden 同时 k => j
         if (constype == "required" and (not existitem1)) or (constype == "forbidden" and existitem1):
             # print("fixed variable to zero: ", var)
             infeasible, fixed = self.model.fixVar(var, 0.0)
@@ -61,11 +66,13 @@ class SameDiff(Conshdlr):
         return nfixedvars, cutoff
 
 
+    # tools
     def consdataFixVariables(self, cons, result):
         # print("entering consdataFixVariables")
         nfixedvars = 0
         cutoff = False
         v = cons.data["npropagatedvars"]
+        # 遍历这个约束的机器的所有pattern 如果中途需要剪枝则终止
         while (v < len(opt.lamb[cons.data["machineIndex"]]) and (not cutoff)):
             nfixedvars, cutoff = self.checkVariable(
                 cons, opt.lamb[cons.data["machineIndex"]][v], v, nfixedvars)
@@ -302,7 +309,8 @@ class MyVarBranching(Branchrule):
                     return -1, True # if neither a next element exists nor this element points to j => no relation between k and j, end search
             return ret_k_iter, ret_found
 
-            
+    # 选择分枝获得平衡树
+    # 输出两个工件
     def determineBranchingVar(self, machineIndex): # org variable to branch on for a balanced tree in terms of patterns, takes into account fixed-status of patterns and already branched  
         # print("entering determineBranchingVar")
         ratio_branches = 0
@@ -324,14 +332,34 @@ class MyVarBranching(Branchrule):
                     # if (not alreadyBranched and not alreadyBranchedImpl): # NOT NEEDED, INSTEAD ASSERT IN THE END
                     # if (not alreadyBranched): # NOT NEEDED, INSTEAD ASSERT IN THE END
 
+                    """
+                    lamb[i][p] 机器i是否加工序列p
                     
-                    sumrequired = np.sum([opt.lamb[machineIndex][i].getLPSol() for i in range(len(self.model.data["patterns"][machineIndex])) if self.model.data["patterns"][machineIndex][i][0][k] < self.model.data["patterns"][machineIndex][i][0][j] ] ) #add together lambda values of patterns on machine [Index] that have job k before j and that were not fix to 0 yet
-                    sumforbidden = np.sum([opt.lamb[machineIndex][i].getLPSol() for i in range(len(self.model.data["patterns"][machineIndex])) if self.model.data["patterns"][machineIndex][i][0][k] > self.model.data["patterns"][machineIndex][i][0][j] ] ) #add together lambda values of patterns on machine [Index] that do not have job k before j and that were not fix to 0 yet
+                    """
+                    # 对在[machineIndex]机器上的pattern上的，工件k在工件j之 前 加工的 lambda[i][p]求和
+                    # add together lambda values of patterns on machine [Index] that have job k before j and that were not fix to 0 yet
+                    sumrequired = np.sum(
+                        [
+                            opt.lamb[machineIndex][i].getLPSol() 
+                            for i in range(len(self.model.data["patterns"][machineIndex])) 
+                            if self.model.data["patterns"][machineIndex][i][0][k] < self.model.data["patterns"][machineIndex][i][0][j] 
+                        ] 
+                    ) 
+                    # 对在[machineIndex]机器上的pattern上的，工件k在工件j之 后 加工的 lambda[i][p]求和
+                    #add together lambda values of patterns on machine [Index] that do not have job k before j and that were not fix to 0 yet
+                    sumforbidden = np.sum(
+                        [
+                            opt.lamb[machineIndex][i].getLPSol() 
+                            for i in range(len(self.model.data["patterns"][machineIndex])) 
+                            if self.model.data["patterns"][machineIndex][i][0][k] > self.model.data["patterns"][machineIndex][i][0][j] 
+                            ] 
+                    ) 
                     # print("currentNode number: ", self.model.getCurrentNode().getNumber())
                     # print("sumrequired ", sumrequired)
                     # print("sumforbidden ", sumforbidden)
-                    
-                    ratio_branches_new = np.fmin(sumrequired, sumforbidden)/np.fmax(sumrequired, sumforbidden) # smaller branch divided by bigger branch, should be near 1 for balanced tree
+
+                    # smaller branch divided by bigger branch, should be near 1 for balanced tree
+                    ratio_branches_new = np.fmin(sumrequired, sumforbidden)/np.fmax(sumrequired, sumforbidden) 
                     # print("ratio_branches_new" , ratio_branches_new)
                     if ratio_branches < ratio_branches_new:
                             ratio_branches = ratio_branches_new
@@ -359,13 +387,17 @@ class MyVarBranching(Branchrule):
     
         integral = lpcands[0] #take the first candidate # IS THIS NECESSARY?
         
-        patternInd = [int(s) for s in re.findall(r'\b\d+\b', integral.name)] #which pattern is meant by the lambda variable
+        #which pattern is meant by the lambda variable
+        patternInd = [int(s) for s in re.findall(r'\b\d+\b', integral.name)] 
         
-        pattern = patterns[patternInd[0]][patternInd[1]] #retrieve the corresponding pattern, ind[0] is the machine, ind[1] the pattern
+        #retrieve the corresponding pattern, ind[0] is the machine, ind[1] the pattern
+        pattern = patterns[patternInd[0]][patternInd[1]] 
         
-        pricing = list(self.model.data["pricer"].pricingList.items())[patternInd[0]][1] #get the corresponding pricing problem NOT USED
+        #get the corresponding pricing problem NOT USED
+        pricing = list(self.model.data["pricer"].pricingList.items())[patternInd[0]][1] 
         
-        k_found,j_found = self.determineBranchingVar(patternInd[0]) # find the order variable to branch on, on the first lambda candidates machine
+        # find the order variable to branch on, on the first lambda candidates machine
+        k_found,j_found = self.determineBranchingVar(patternInd[0]) 
         
         if k_found == -1 and j_found == -1:
             # print("lpcands, lpcandssol:", lpcands, lpcandssol)
@@ -386,6 +418,7 @@ class MyVarBranching(Branchrule):
         consbigger = self.model.data["conshdlr"].consdataCreate(
             "forbidden_(%s%s)_m(%s)"%(k_found,j_found,patternInd[0]), k_found,j_found, "forbidden", childbigger, patternInd[0], patternInd[1])
         
+        # addConsNode: Add a constraint to the given node
         self.model.addConsNode(childsmaller, conssmaller)
 
         self.model.addConsNode(childbigger, consbigger)
@@ -398,9 +431,17 @@ class MyVarBranching(Branchrule):
         return {"result": SCIP_RESULT.BRANCHED}
 
 # Pricing creates one pricing problem. You need to provide the processing times matrix, the machine index, and the dual information to form the objective
+# 定价子问题
 class Pricing:
 
-    def __init__(self, initProcessingTimes, i, n, beta, gamma):
+    def __init__(
+            self, 
+            initProcessingTimes, # 处理时间矩阵
+            i, # 机器编号
+            n, # 工件数量
+            beta, 
+            gamma
+        ):
         self.n = n
         self.s = {}
         self.f = {}
@@ -446,30 +487,39 @@ class Pricing:
                     self.pricing.addCons(
                         self.x[j, k] + self.x[k, j] == 1, "precedence(%s)" % (j))
                 # if j => k, then start time of j should be 0
-                self.pricing.addCons(self.s[j] <= (
-                    (self.n - 1)-quicksum(self.x[j, k] for k in range(self.n) if k != j))*50, "fixAtZero(%s)" % (j))
+                self.pricing.addCons(
+                    self.s[j] <= 
+                    ((self.n - 1)-quicksum(self.x[j, k] for k in range(self.n) if k != j))
+                    * 50, 
+                    "fixAtZero(%s)" % (j))
 
         for k in range(0, self.n):
             for j in range(0, self.n):
-                # for each job k the finishing date one machine i has to be smaller than the starting date of the next job j, (1) if j follows k on i, (2) if job k was not the cutoff job (last job) on i
+                # for each job k, the finishing date one machine i has to be smaller than 
+                # the starting date of the next job j, 
+                # (1) if j follows k on i, 
+                # (2) if job k was not the cutoff job (last job) on i
                 self.pricing.addCons(
-                    self.f[k] <= self.s[j] + self.bigM*(1-self.x[k, j]), "finishStart(%s)" % (k))
+                    self.f[k] <= self.s[j] + self.bigM*(1-self.x[k, j]), 
+                    "finishStart(%s)" % (k)
+                )
                 
         self.pricing.enableReoptimization()
         
     def changeObj(self, dualSolutionsBeta, dualSolutionsGamma, i):
-        self.pricing.enableReoptimization()
+        # self.pricing.enableReoptimization()
         newObj = quicksum([self.s[j]*dualSolutionsBeta[i*opt.numberJobs + j]*(-1) + self.f[j]*dualSolutionsGamma[i*opt.numberJobs + j]*(-1) for j in range(self.n)])
 
         # self.pricing.freeTransform()
-        self.pricing.freeReoptSolve()
+        # self.pricing.freeReoptSolve()
         self.pricing.chgReoptObjective(newObj)
         
 # Pricer is the pricer plugin from pyscipopt. In the reduced costs function new patterns will be generated during BAP
 class Pricer(Pricer):
     def addBranchingDecisionConss(self, modelIN, machineIndex):
         # print("entering addBranchingDecisionsConss")
-        modelIN.pricing.freeTransform()
+        # modelIN.pricing.freeTransform()
+        modelIN.pricing.freeReoptSolve()
         for cons in self.model.data['branchingCons']:
             if (not cons.isActive()):
                 continue
@@ -543,7 +593,7 @@ class Pricer(Pricer):
             pricing.changeObj(dualSolutionsBeta, dualSolutionsGamma, i)
             print("pricingObj after change: ", pricing.pricing.getObjective())
             
-            
+            print("machine: ", key)
             pricing.pricing.optimize()
             
             # print("pricing solution status: ", pricing.pricing.getStatus())
@@ -750,7 +800,14 @@ class Optimizer:
                 self.s.append(self.master.addVar(vtype="C", name = "start_m(%s)j(%s)"%(i,j)))
                 self.f.append(self.master.addVar(vtype="C", name = "finish_m(%s)j(%s)"%(i,j)))
     
-            self.alphaCons.append(self.master.addCons(quicksum( self.lamb[i][l] for l in range(len(self.patterns[i]))) - 1 == 0, "convexityOnMachine(%s)" % (i), separate=False, modifiable=True))  # only one pattern per machine
+            self.alphaCons.append(
+                self.master.addCons(
+                    quicksum( self.lamb[i][l] for l in range(len(self.patterns[i]))) - 1 
+                    == 
+                    0, 
+                    "convexityOnMachine(%s)" % (i), separate=False, modifiable=True
+                )
+            )  # only one pattern per machine
     
         # define makespan
         c_max = self.master.addVar(vtype="C", name="makespan", obj=1.0)
@@ -762,20 +819,39 @@ class Optimizer:
         #             if k != j:
         #                 self.omegaCons[i]["%s%s"%(k,j)] = self.master.addCons(self.f[k + i*self.numberJobs] - self.s[j + i*self.numberJobs] - self.bigM*(1-quicksum(self.patterns[i][l][k][j]*self.lamb[i][l] for l in range(len(self.patterns[i]))) ) <=  0, "finishStart(%s,%s,%s)"%(i,k,j), separate=False, modifiable=True) # for each job k the finishing date one machine i has to be smaller than the starting date of the next job j, (1) if j follows k on i, (2) if job k was not the cutoff job (last job) on i 
             for j in range(0, self.numberJobs):
-                self.betaCons.append(self.master.addCons(quicksum( self.patterns[i][l][0][j]* self.lamb[i][l] for l in range(len( self.patterns[i]))) +
-                                                                    self.offset[i] -  self.s[j + i* self.numberJobs] == 0, separate=False, modifiable=True, name = "startCon_m(%s)j(%s)" %(i,j))) # starting time on machine i for job j is determined by the starting time of job j in the selected pattern p
+                self.betaCons.append(
+                    self.master.addCons(
+                        quicksum( self.patterns[i][l][0][j]* self.lamb[i][l] for l in range(len( self.patterns[i]))) 
+                        +
+                        self.offset[i] -  self.s[j + i* self.numberJobs] == 0, 
+                        separate=False, modifiable=True, name = "startCon_m(%s)j(%s)" %(i,j)
+                    )
+                ) # starting time on machine i for job j is determined by the starting time of job j in the selected pattern p
                 # completion time on machine i for job j is determined by the completion time of job j in the selected pattern p
-                self.gammaCons.append(self.master.addCons(quicksum( self.patterns[i][l][1][j]* self.lamb[i][l] for l in range(len( self.patterns[i]))) +  self.offset[i] -  self.f[j + i* self.numberJobs] == 0, separate=False, modifiable=True, name = "finishCon_m(%s)j(%s)" %(i,j)))
+                self.gammaCons.append(
+                    self.master.addCons(
+                        quicksum( self.patterns[i][l][1][j]* self.lamb[i][l] for l in range(len( self.patterns[i]))) 
+                        +  self.offset[i] -  self.f[j + i* self.numberJobs] 
+                        == 0, 
+                        separate=False, modifiable=True, name = "finishCon_m(%s)j(%s)" %(i,j)
+                    )
+                )
             if i !=  self.numberMachines-1:
                 for j in range(0, self.numberJobs):
-                    self.master.addCons( self.f[j + i*self.numberJobs] <=  self.s[j + (i+1)*self.numberJobs],
+                    self.master.addCons( 
+                        self.f[j + i*self.numberJobs] <=  self.s[j + (i+1)*self.numberJobs],
                                    "interMachine(%s,%s)" % (i, j))
             for j in range(0, self.numberJobs):
-                self.master.addCons( self.s[j + i*self.numberJobs] +  self.processing_times[j, i] ==  self.f[j + i* self.numberJobs],
+                self.master.addCons( 
+                    self.s[j + i*self.numberJobs] +  self.processing_times[j, i] 
+                    ==  
+                    self.f[j + i* self.numberJobs],
                                "startFinish(%s,%s)" % (i, j))
     
         for j in range(0, self.numberJobs):
-            self.master.addCons(c_max >=  self.f[j + ( self.numberMachines-1)* self.numberJobs], "makespanConstrMachine(%s)" % (j))
+            self.master.addCons(
+                c_max >= self.f[j + ( self.numberMachines-1)* self.numberJobs], 
+                "makespanConstrMachine(%s)" % (j))
             
         #### End         
     
